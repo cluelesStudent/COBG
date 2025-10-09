@@ -158,6 +158,10 @@ def optimal_probability(lambda_arr, T, k, R = 1000, logs = True):
         return max_prob
     
 def rho(lambda_arr, f2, f1):
+    """
+    Compute the values of rho as in Theorem 4.6, for given hashrate distribution lambda_arr, when trying to censor a transaction with fee f1 using
+    a transaction with fee f2.
+    """
     def a(lambda_arr, j):
         return np.log(np.sum(lambda_arr[j:]))
 
