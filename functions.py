@@ -2,6 +2,8 @@ import numpy as np
 import itertools as it
 from math import *
 from numba import njit
+from matplotlib import pyplot as plt
+from matplotlib.colors import ListedColormap
 
 ## G-COBG ##
 
@@ -54,6 +56,25 @@ def N_equiprobable(m, T):
         prob = (comb(m, k) * incl_excl_sum) / (m ** T)
         dist[k - 1] = prob
     return dist
+
+def g_probability(lambda_arr, T, k):
+    """
+    Compute the censoring probability for T rounds with a bribe budget F2 = k * f1 as in Theorem 4.3, for given hashrate distribution lambda_arr.
+    """
+    lambda0 = lambda_arr[0] 
+
+    P1 = N(lambda_arr[1:]/(1 - lambda0), T + 1)
+    P2 = N(lambda_arr[1:]/(1 - lambda0), T)
+
+    def cum_prob(P, k):
+        if k < 1:
+            return 0
+        elif k >= 1 and k < len(P):
+            return np.sum(P[:floor(k)])
+        else:
+            return 1
+
+    return (1 - lambda0) ** T * ((1 - lambda0) * cum_prob(P1, k) + lambda0 * cum_prob(P2, k - 1))
 
 ## U-COBG ##
 
@@ -179,3 +200,91 @@ def rho(lambda_arr, f2, f1):
         rho_arr[j] = np.ceil(rho_arr[j - 1]) + (b(f1, f2, lambda_arr, j) - s) / a(lambda_arr, j)
         s += (np.ceil(rho_arr[j] - np.ceil(rho_arr[j - 1]))) * a(lambda_arr, j)
     return np.ceil(rho_arr)
+
+def rho_probability(lambda_arr, rho_arr, T):
+    """
+    Compute the censoring probability for T rounds as in Theorem 4.6, for given hashrate distribution lambda_arr, and array of rho values rho_arr.
+    """
+    if T > max(rho_arr):
+        return 0
+    
+    else:
+        per_round_probs = [
+            sum(p for p, d in zip(lambda_arr, rho_arr) if d >= r)
+            for r in range(1, T + 1)
+        ]
+        return prod(per_round_probs)
+    
+def rho_plot(lambda_arr, rho_arr, T):
+    """
+    Visualise which miners are censoring in each round until T.
+    """
+    num_players = len(rho_arr)
+    grid = np.zeros((num_players, T), dtype=int)
+
+    for i, d in enumerate(rho_arr):
+        grid[i,:min(int(d), T)] = 1
+
+        cmap = ListedColormap(["white", "lightgrey"])
+
+    zero_col = np.ones((grid.shape[0], 1), dtype=grid.dtype)
+    grid = np.hstack([zero_col, grid])
+
+    grid = np.fliplr(grid)
+
+    fig, ax = plt.subplots(figsize=(8, 3))
+    ax.imshow(grid, cmap=cmap, aspect="equal")
+
+    ax.set_xlabel(r"$T$", fontsize=16)
+    ax.set_ylabel(r"$(\lambda_j)_{j=0}^m$", fontsize=16)
+
+    ax.set_xticks(np.arange(grid.shape[1]))
+    ax.set_xticklabels(np.arange(grid.shape[1]-1, -1, -1))
+
+    ax.set_yticks(np.arange(grid.shape[0]))
+    ax.set_yticklabels([f"{p:.2f}" for p in lambda_arr])
+
+    ax.set_xticks(np.arange(-0.5, grid.shape[1], 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, grid.shape[0], 1), minor=True)
+
+    ax.grid(which="minor", color="black", linewidth=0.8)
+    ax.tick_params(which="minor", bottom=False, left=False)
+
+    plt.tight_layout()
+    plt.show()
+
+if __name__ == "__main__":
+    lambda_arr = np.array([0.2,0.1,0.3,0.4])
+    lambda0 = lambda_arr[0]
+    m = len(lambda_arr) - 1
+
+    # Figure comparing censoring probability G-COBG / U-COBG as a function of bribe
+
+    T = 8      
+
+    print(min(m,T))
+    print((1-lambda0) ** (-T + 1) - 1)
+
+    K = 1000
+    k_max = 50
+    k_arr = np.linspace(0, k_max, K)
+    g_arr = np.ones(K)
+    u_arr = np.ones(K)
+
+    for i, k in enumerate(k_arr):
+        g_arr[i] = g_probability(lambda_arr, T, k)
+        u_arr[i] = rho_probability(lambda_arr, rho(lambda_arr, k, 1), T)
+
+    plt.plot(k_arr, g_arr, color = "black", label="G-COBG")
+    plt.plot(k_arr, u_arr, color = "black", linestyle="--", label="U-COBG")
+    plt.grid()
+    plt.xlim(0, k_max)
+    plt.ylim(0,0.25)
+    plt.xlabel(r"$\kappa$", fontsize=16)
+    plt.ylabel(r"$P(C)$", fontsize=16)
+    plt.legend(fontsize=16)
+    plt.show()
+
+    # Visualising U-COBG censoring timeline
+
+    rho_plot(lambda_arr, rho(lambda_arr, 25, 1), 10)
